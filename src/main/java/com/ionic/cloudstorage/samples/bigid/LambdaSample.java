@@ -18,7 +18,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.net.URLEncoder;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
@@ -29,13 +28,11 @@ import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 
+import com.ionic.sdk.agent.Agent;
 import com.ionic.sdk.agent.data.MetadataMap;
 import com.ionic.sdk.agent.key.KeyAttributesMap;
 import com.ionic.sdk.agent.request.createkey.CreateKeysRequest;
-import com.ionic.sdk.cipher.PassThroughCipher;
-import com.ionic.sdk.device.profile.DeviceProfile;
-import com.ionic.sdk.device.profile.persistor.DeviceProfilePersistorPassword;
-import com.ionic.samples.jsonpersistor.JsonPersistor;
+import com.ionic.sdk.device.profile.persistor.DeviceProfiles;
 import com.ionic.cloudstorage.awss3.IonicEncryptionMaterialsProvider;
 import com.ionic.cloudstorage.awss3.IonicS3EncryptionClient;
 import com.ionic.cloudstorage.awss3.IonicS3EncryptionClientBuilder;
@@ -168,23 +165,11 @@ public class LambdaSample implements RequestHandler<Src2DestRequest, Src2DestRes
                 }
             }
 
-            // Set up IonicEncryptionMaterialsProvider and provide to constructor of IonicS3EncryptionClient
-            JsonPersistor jsonPersistor = null;
-            try {
-                jsonPersistor = new JsonPersistor(bigidSep);
-            } catch (Exception e) {
-                outStream.println(e.getLocalizedMessage());
-            }
-            outStream.println("Persistor loaded");
-            IonicEncryptionMaterialsProvider iemp = new IonicEncryptionMaterialsProvider();
-            try {
-                iemp.setPersistor(jsonPersistor);
-            } catch (Exception e) {
-                outStream.println(e.getLocalizedMessage());
-            }
-            iemp.setIonicMetadataMap(getMetadataMap());
+            // Set up Agent and provide to builder for IonicS3EncryptionClient
+            Agent agent = new Agent(new DeviceProfiles(bigidSep));
+            agent.setMetadata(getMetadataMap());
 
-            IonicS3EncryptionClient ionicS3 = (IonicS3EncryptionClient)IonicS3EncryptionClientBuilder.standard().withEncryptionMaterials(iemp).build();
+            IonicS3EncryptionClient ionicS3 = IonicS3EncryptionClientBuilder.standard().withIonicAgent(agent).buildIonic();
             outStream.println("Encryption client built");
 
             AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
@@ -210,7 +195,7 @@ public class LambdaSample implements RequestHandler<Src2DestRequest, Src2DestRes
                 kam.put("bigid-attributes", bigidAttributes);
 
                 PutObjectRequest req = new PutObjectRequest(destBucket, plainObject.getKey(),
-                plainObject.getObjectContent(), plainObject.getObjectMetadata());
+                    plainObject.getObjectContent(), plainObject.getObjectMetadata());
                 outStream.println("Encrypting " + node.get("objectName").asText());
                 ionicS3.putObject(req, new CreateKeysRequest.Key("", 1, kam));
                 copiedSet.add(split[1]);
